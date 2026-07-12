@@ -140,11 +140,11 @@ continued") are not.
 Tested on real lecture decks, comparing the recovered slide count against
 ground truth (the deck's own slide numbering):
 
-| Deck                       | Pages | Method  | Auto slides | With corrections | True count |
-|----------------------------|------:|---------|------------:|-----------------:|-----------:|
-| L2: Intelligent Agents     |    81 | labels  |          21 |   23 (`--split`) |         23 |
-| L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
-| L4: Search II              |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
+| Deck                    | Pages | Method  | Auto slides | With corrections | True count |
+|-------------------------|------:|---------|------------:|-----------------:|-----------:|
+| L2: Intelligent Agents  |    81 | labels  |          21 |   23 (`--split`) |         23 |
+| L3: Search              |    41 | labels  |          20 |   22 (`--split`) |         22 |
+| L4: Search II           |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
 | Combined lectures (merged) |   670 | text    |         368 |                — |          — |
 
 *(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
