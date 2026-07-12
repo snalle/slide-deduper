@@ -8,8 +8,40 @@ from pathlib import Path
 
 from . import __version__
 from .inspect import inspect_pdf, print_report
-from .group import group_pages, format_groups, SlideGroup
+from .group import group_pages, format_groups, SlideGroup, suggest_splits, format_split_suggestions
 from .dedupe import dedupe_pdf, format_text_report, write_html_report
+
+
+def _parse_split_spec(spec: str, groups: list[SlideGroup], method: str) -> list[SlideGroup]:
+    """Split groups so that a new group *starts* at each given page number.
+
+    Spec is a comma-separated list of 1-based physical page numbers, e.g.
+    '27,53' means "page 27 begins a new slide, and page 53 begins a new
+    slide" - splitting whatever groups currently contain those pages.
+
+    This is the complement of --merge: it corrects cases where a genuinely
+    new subject shares a page label with the previous slide's final build, so
+    automatic grouping swallowed it.
+    """
+    if not spec:
+        return groups
+
+    split_at = {int(x.strip()) for x in spec.split(",") if x.strip()}
+
+    result: list[SlideGroup] = []
+    for g in groups:
+        # Find split points that fall strictly inside this group.
+        cuts = sorted(p for p in split_at if g.start < p <= g.end)
+        if not cuts:
+            result.append(g)
+            continue
+
+        boundaries = [g.start] + cuts + [g.end + 1]
+        for a, b in zip(boundaries, boundaries[1:]):
+            pages = [p for p in g.pages if a <= p < b]
+            if pages:
+                result.append(SlideGroup(pages, method, g.confidence))
+    return result
 
 
 def _parse_merge_spec(spec: str, groups: list[SlideGroup], method: str) -> list[SlideGroup]:
@@ -80,6 +112,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SPEC",
         help="manually merge groups, e.g. '3+4,7+8' (indices from the report)",
     )
+    p.add_argument(
+        "--split",
+        default="",
+        metavar="PAGES",
+        help="start a new slide at these page numbers, e.g. '27,53' "
+        "(splits groups where a new subject shares a label with the previous build)",
+    )
+    p.add_argument(
+        "--auto-split",
+        action="store_true",
+        help="automatically apply the suggested title-change splits "
+        "(otherwise they are only printed as suggestions)",
+    )
     p.add_argument("--quiet", action="store_true", help="suppress the text report")
     p.add_argument("--version", action="version", version=f"slide-deduper {__version__}")
     return p
@@ -101,6 +146,18 @@ def main(argv: list[str] | None = None) -> int:
     groups = group_pages(info, method=args.method, threshold=args.confidence_threshold)
     chosen_method = args.method if args.method != "auto" else (groups[0].method if groups else "auto")
 
+    # Detect candidate missed boundaries (new subject inside a grouped run).
+    suggestions = suggest_splits(info, groups)
+
+    # Manual corrections. Split first (operates on page numbers, unaffected by
+    # indexing), then merge (operates on the resulting group indices).
+    split_spec = args.split
+    if args.auto_split and suggestions:
+        auto_pages = ",".join(str(p) for _, p, _ in suggestions)
+        split_spec = f"{split_spec},{auto_pages}" if split_spec else auto_pages
+
+    if split_spec:
+        groups = _parse_split_spec(split_spec, groups, chosen_method)
     if args.merge:
         groups = _parse_merge_spec(args.merge, groups, chosen_method)
 
@@ -109,6 +166,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         print(format_text_report(info, result))
+        # Show suggestions only when they weren't already auto-applied.
+        if suggestions and not args.auto_split:
+            print(format_split_suggestions(suggestions))
 
     if args.report:
         write_html_report(info, result, args.report)

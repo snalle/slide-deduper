@@ -283,3 +283,57 @@ def format_groups(groups: list[SlideGroup]) -> str:
         conf = "" if g.confidence >= 0.999 else f"  (confidence {g.confidence:.2f})"
         lines.append(f"Slide group {i}: {g}{conf}")
     return "\n".join(lines)
+
+
+def suggest_splits(
+    info: PdfInspection,
+    groups: list[SlideGroup],
+    title_similarity: float = 0.5,
+) -> list[tuple[int, int, str]]:
+    """Find pages that likely start a new slide despite being grouped.
+
+    Some decks put a genuinely new subject on the same page label (or otherwise
+    let it group with the previous slide's final build). Those pages have a
+    title that differs sharply from the page before them. This scans inside
+    each multi-page group and flags such internal title changes as *candidate*
+    split points - it does not modify the grouping.
+
+    Returns a list of (group_index, page_number, new_title) tuples, where
+    group_index is 1-based (matching the report) and page_number is where a
+    new slide probably begins. Feed the page numbers to --split to apply them.
+
+    ``title_similarity`` is the cutoff below which two consecutive titles count
+    as "different"; lower = more conservative (fewer suggestions).
+    """
+    by_page = {p.number: p for p in info.pages}
+    suggestions: list[tuple[int, int, str]] = []
+
+    for gi, group in enumerate(groups, 1):
+        if len(group.pages) < 2:
+            continue
+        for prev_pg, curr_pg in zip(group.pages, group.pages[1:]):
+            prev = by_page.get(prev_pg)
+            curr = by_page.get(curr_pg)
+            if not prev or not curr:
+                continue
+            prev_title = _normalize(prev.title)
+            curr_title = _normalize(curr.title)
+            if not prev_title or not curr_title:
+                continue
+            sim = SequenceMatcher(None, prev_title, curr_title).ratio()
+            if sim < title_similarity:
+                suggestions.append((gi, curr_pg, curr.title.strip()))
+    return suggestions
+
+
+def format_split_suggestions(suggestions: list[tuple[int, int, str]]) -> str:
+    """Render split suggestions as a short, copy-pasteable hint block."""
+    if not suggestions:
+        return ""
+    lines = ["", "Possible missed slide boundaries (title changes inside a group):"]
+    for gi, page, title in suggestions:
+        preview = title if len(title) <= 50 else title[:50] + "..."
+        lines.append(f"  group {gi}: page {page} looks like a new slide - {preview!r}")
+    pages = ",".join(str(p) for _, p, _ in suggestions)
+    lines.append(f"To apply all: --split {pages}")
+    return "\n".join(lines)
