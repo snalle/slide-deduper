@@ -90,6 +90,12 @@ against three failure modes found on actual lecture PDFs:
   don't crash the tool on Windows terminals, whose legacy default encoding
   (cp1252) can't represent them.
 
+- **Exact-duplicate pages.** Some exporters emit the fully-built slide more
+  than once (e.g. a Beamer overlay that repeats its final frame). When such
+  duplicates straddle a page-label boundary, the label detector would keep two
+  copies. A post-grouping pass detects adjacent groups whose boundary pages
+  have identical text and merges them, so only one copy survives.
+
 ## Manual correction
 
 Automatic grouping recovers the slide structure the PDF *declares*.
@@ -138,6 +144,7 @@ ground truth (the deck's own slide numbering):
 |----------------------------|------:|---------|------------:|-----------------:|-----------:|
 | L2: Intelligent Agents     |    81 | labels  |          21 |   23 (`--split`) |         23 |
 | L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
+| L4: Search II              |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
 | Combined lectures (merged) |   670 | text    |         368 |                — |          — |
 
 *(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
@@ -147,6 +154,12 @@ The Intelligent Agents deck is the illustrative case: the PDF's page labels
 declare 21 slides, and automatic detection recovers exactly that. Two of those
 "slides" actually contain a topic change the author placed under one label;
 `--split` (suggested automatically) separates them for the reader's 23.
+
+Search II is the most demanding case: it combines incremental builds, topic
+changes hidden under shared labels, *and* exact-duplicate frames. With a single
+`--auto-split`, the output matches a hand-labelled ground truth exactly — every
+one of the 36 kept pages agrees. Each deck above drove a specific fix
+documented under "Handling messy real-world files".
 
 ## All options
 
