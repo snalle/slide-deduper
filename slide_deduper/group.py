@@ -285,10 +285,28 @@ def format_groups(groups: list[SlideGroup]) -> str:
     return "\n".join(lines)
 
 
+def _title_similarity(a: str, b: str) -> float:
+    """Word-overlap similarity between two titles, in 0..1.
+
+    Uses shared *words* rather than shared characters. Character-level
+    similarity is misled by common trailing words: "Evaluating Algorithms" and
+    "Uninformed Search Algorithms" share the word "Algorithms" and score high
+    on characters, yet are clearly different topics. Word overlap scores that
+    pair low (only 1 shared word) while still scoring genuine continuations
+    like "Proof" / "Proof continued" as identical (all of the shorter title's
+    words are present in the longer).
+    """
+    wa = set(_normalize(a).split())
+    wb = set(_normalize(b).split())
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / min(len(wa), len(wb))
+
+
 def suggest_splits(
     info: PdfInspection,
     groups: list[SlideGroup],
-    title_similarity: float = 0.5,
+    title_similarity: float = 0.6,
 ) -> list[tuple[int, int, str]]:
     """Find pages that likely start a new slide despite being grouped.
 
@@ -316,12 +334,9 @@ def suggest_splits(
             curr = by_page.get(curr_pg)
             if not prev or not curr:
                 continue
-            prev_title = _normalize(prev.title)
-            curr_title = _normalize(curr.title)
-            if not prev_title or not curr_title:
+            if not _normalize(prev.title) or not _normalize(curr.title):
                 continue
-            sim = SequenceMatcher(None, prev_title, curr_title).ratio()
-            if sim < title_similarity:
+            if _title_similarity(prev.title, curr.title) < title_similarity:
                 suggestions.append((gi, curr_pg, curr.title.strip()))
     return suggestions
 

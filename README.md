@@ -85,6 +85,11 @@ against three failure modes found on actual lecture PDFs:
   builds of one slide look different and split them. Such `N / M` footers are
   stripped before text comparison.
 
+- **Non-Latin characters in slide text.** Slides often contain arrows (`←`),
+  math symbols, or other Unicode. Console output is forced to UTF-8 so these
+  don't crash the tool on Windows terminals, whose legacy default encoding
+  (cp1252) can't represent them.
+
 ## Manual correction
 
 Automatic grouping recovers the slide structure the PDF *declares*.
@@ -118,15 +123,22 @@ Suggestions are printed but **not** applied automatically, so the reliable
 label-based default is never silently overridden. Copy the suggested `--split`,
 or let the tool apply its own suggestions with `--auto-split`.
 
+Titles are compared by *word overlap* rather than character similarity, so two
+headings that share a common word but cover different topics — e.g.
+"Evaluating Algorithms" vs "Uninformed Search Algorithms" — are still
+recognised as a boundary, while genuine continuations ("Proof" → "Proof
+continued") are not.
+
 ## Validation
 
 Tested on real lecture decks, comparing the recovered slide count against
 ground truth (the deck's own slide numbering):
 
-| Deck                        | Pages | Method  | Auto slides | With corrections | True count |
-|-----------------------------|------:|---------|------------:|-----------------:|-----------:|
-| Intelligent Agents          |    81 | labels  |          21 |   23 (`--split`) |         23 |
-| Combined lectures (merged)  |   670 | text    |         368 |                — |          — |
+| Deck                       | Pages | Method  | Auto slides | With corrections | True count |
+|----------------------------|------:|---------|------------:|-----------------:|-----------:|
+| L2: Intelligent Agents     |    81 | labels  |          21 |   23 (`--split`) |         23 |
+| L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
+| Combined lectures (merged) |   670 | text    |         368 |                — |          — |
 
 *(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
 known count, and compare.)*

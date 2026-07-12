@@ -6,6 +6,16 @@ import argparse
 import sys
 from pathlib import Path
 
+# Slide text often contains non-Latin characters (arrows like "<-", math
+# symbols, bullets). Windows consoles default to a legacy codepage (cp1252)
+# that can't encode them, which crashes print(). Force UTF-8 on our streams so
+# output works identically across platforms.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass  # older Python or already-wrapped stream; nothing we can do safely
+
 from . import __version__
 from .inspect import inspect_pdf, print_report
 from .group import group_pages, format_groups, SlideGroup, suggest_splits, format_split_suggestions

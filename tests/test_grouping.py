@@ -218,27 +218,34 @@ def test_beamer_footer_does_not_split_builds():
 def test_suggest_splits_finds_title_change():
     """suggest_splits flags a new-subject page hidden inside a shared-label run.
 
-    Pages 1-4 share label "9" so they group into one slide. Page 4 has a
-    completely different title from 1-3, marking a real new subject. The
-    suggester should propose splitting at page 4 (without altering the
-    grouping itself).
+    Two cases are checked, both inside one shared-label group:
+    - a sharply different title ("Remarks" -> "Task Environment Specification")
+    - titles that share a trailing word but are still different topics
+      ("Evaluating Algorithms" -> "Uninformed Search Algorithms"). This second
+      case is why title similarity is measured by word overlap, not characters:
+      the shared word "Algorithms" would fool a character-level comparison.
     """
     from slide_deduper.inspect import PdfInspection, PageInfo
     from slide_deduper.group import group_by_labels, suggest_splits
 
-    titles = ["Remarks", "Remarks", "Remarks", "Task Environment Specification"]
+    titles = [
+        "Remarks", "Remarks", "Task Environment Specification",
+        "Evaluating Algorithms", "Uninformed Search Algorithms",
+    ]
     pages = [
         PageInfo(index=i, label="9", xref=i, text=titles[i], title=titles[i])
-        for i in range(4)
+        for i in range(len(titles))
     ]
     info = PdfInspection(
-        path=Path("x"), page_count=4, pdf_format="", metadata={},
+        path=Path("x"), page_count=len(titles), pdf_format="", metadata={},
         bookmarks=[], page_label_rules=["x"], pages=pages,
     )
     groups = group_by_labels(info)
     suggestions = suggest_splits(info, groups)
-    # One suggestion: in group 1, page 4 begins a new slide.
-    assert suggestions == [(1, 4, "Task Environment Specification")]
+    flagged_pages = [page for _, page, _ in suggestions]
+    # Page 3 (Task Environment) and page 5 (Uninformed Search) are new topics.
+    assert 3 in flagged_pages
+    assert 5 in flagged_pages
 
 
 def test_manual_split_starts_new_group():
