@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slide-deduper"
+version = "0.1.0"
+description = "Turn an incremental-build slide PDF into a clean PDF with only the final version of each slide."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["pymupdf>=1.24"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+slide-deduper = "slide_deduper.cli:main"
+
+[tool.setuptools]
+packages = ["slide_deduper"]
