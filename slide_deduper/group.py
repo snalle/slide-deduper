@@ -239,6 +239,44 @@ def group_by_visual(
     return groups
 
 
+def merge_duplicate_pages(
+    info: PdfInspection, groups: list[SlideGroup]
+) -> list[SlideGroup]:
+    """Merge adjacent groups whose boundary pages are exact duplicates.
+
+    Some exporters emit the fully-built slide more than once (e.g. a Beamer
+    overlay that repeats the final frame). When such duplicates straddle a
+    label boundary, the label detector splits them into two groups even though
+    they are the same slide. This pass compares the last page of each group
+    with the first page of the next; if their extracted text is identical, the
+    groups are merged so only one copy survives.
+
+    Text-based (no rendering): fast, and exact duplicates have identical text.
+    """
+    if len(groups) < 2:
+        return groups
+
+    by_page = {p.number: p for p in info.pages}
+
+    def norm(page_no: int) -> str:
+        page = by_page.get(page_no)
+        return " ".join(page.text.lower().split()) if page else ""
+
+    merged: list[SlideGroup] = [groups[0]]
+    for g in groups[1:]:
+        prev = merged[-1]
+        prev_text = norm(prev.end)
+        curr_text = norm(g.start)
+        # Merge only when both pages have text and it is identical.
+        if prev_text and prev_text == curr_text:
+            merged[-1] = SlideGroup(
+                prev.pages + g.pages, prev.method, min(prev.confidence, g.confidence)
+            )
+        else:
+            merged.append(g)
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -251,30 +289,37 @@ def group_pages(
     method: str = "auto",
     threshold: float = 0.85,
 ) -> list[SlideGroup]:
-    """Group pages using the chosen method, or auto-select the best one."""
+    """Group pages using the chosen method, or auto-select the best one.
+
+    After the chosen method runs, a duplicate-merging pass collapses adjacent
+    groups whose boundary pages are exact duplicates (see
+    ``merge_duplicate_pages``).
+    """
 
     if method not in _METHODS + ("auto",):
         raise ValueError(f"Unknown method {method!r}; choose from {_METHODS} or 'auto'.")
 
     if method == "bookmarks":
-        return group_by_bookmarks(info) or [
+        groups = group_by_bookmarks(info) or [
             SlideGroup([p.number], "bookmarks", 0.0) for p in info.pages
         ]
-    if method == "labels":
-        return group_by_labels(info) or [
+    elif method == "labels":
+        groups = group_by_labels(info) or [
             SlideGroup([p.number], "labels", 0.0) for p in info.pages
         ]
-    if method == "text":
-        return group_by_text(info, threshold)
-    if method == "visual":
-        return group_by_visual(info, threshold)
+    elif method == "text":
+        groups = group_by_text(info, threshold)
+    elif method == "visual":
+        groups = group_by_visual(info, threshold)
+    else:
+        # auto: prefer structural signals, fall back to content signals.
+        groups = (
+            group_by_bookmarks(info)
+            or group_by_labels(info)
+            or group_by_text(info, threshold)
+        )
 
-    # auto: prefer structural signals, fall back to content signals.
-    return (
-        group_by_bookmarks(info)
-        or group_by_labels(info)
-        or group_by_text(info, threshold)
-    )
+    return merge_duplicate_pages(info, groups)
 
 
 def format_groups(groups: list[SlideGroup]) -> str:

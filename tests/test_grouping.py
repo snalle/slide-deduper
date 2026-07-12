@@ -182,6 +182,38 @@ def test_sparse_bookmarks_rejected():
     assert group_by_bookmarks(info) is None  # rejected as too sparse
 
 
+def test_duplicate_pages_merged():
+    """Exact-duplicate pages straddling a label boundary collapse to one slide.
+
+    Some exporters emit the final built slide more than once. Here pages 2 and 3
+    are identical but carry different labels ("B" then "C"), so the label
+    detector puts them in separate groups. The duplicate-merge pass must detect
+    the identical boundary pages and merge them, keeping only the later copy.
+    """
+    from slide_deduper.inspect import PdfInspection, PageInfo
+    from slide_deduper.group import group_pages
+
+    #      page: 1        2                3                4
+    #     label: A        B                C                D
+    #      text: intro    Repeated slide   Repeated slide   outro
+    texts = ["Intro", "Repeated slide", "Repeated slide", "Outro"]
+    labels = ["A", "B", "C", "D"]
+    pages = [
+        PageInfo(index=i, label=labels[i], xref=i, text=texts[i], title=texts[i])
+        for i in range(4)
+    ]
+    info = PdfInspection(
+        path=Path("x"), page_count=4, pdf_format="", metadata={},
+        bookmarks=[], page_label_rules=["x"], pages=pages,
+    )
+    keeps = [g.keep for g in group_pages(info, method="labels")]
+    # Labels alone give one group per page: keeps [1, 2, 3, 4]. Pages 2 and 3
+    # are identical duplicates, so they merge into one slide (keep 3); pages 1
+    # and 4 are distinct. Result: [1, 3, 4].
+    assert keeps == [1, 3, 4]
+    assert 2 not in keeps  # the earlier duplicate is dropped
+
+
 def test_beamer_footer_does_not_split_builds():
     """A changing 'N / M' page-number footer must not break build grouping.
 
