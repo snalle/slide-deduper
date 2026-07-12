@@ -140,11 +140,12 @@ continued") are not.
 Tested on real lecture decks, comparing the recovered slide count against
 ground truth (the deck's own slide numbering):
 
-| Deck                    | Pages | Method  | Auto slides | With corrections | True count |
-|-------------------------|------:|---------|------------:|-----------------:|-----------:|
-| L2: Intelligent Agents  |    81 | labels  |          21 |   23 (`--split`) |         23 |
-| L3: Search              |    41 | labels  |          20 |   22 (`--split`) |         22 |
-| L4: Search II           |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
+| Deck                       | Pages | Method  | Auto slides | With corrections | True count |
+|----------------------------|------:|---------|------------:|-----------------:|-----------:|
+| L2: Intelligent Agents     |    81 | labels  |          21 |   23 (`--split`) |         23 |
+| L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
+| L4: Search II              |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
+| L5: Search III             |    49 | labels  |          17 | — (none needed)  |         17 |
 | Combined lectures (merged) |   670 | text    |         368 |                — |          — |
 
 *(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
@@ -158,8 +159,10 @@ declare 21 slides, and automatic detection recovers exactly that. Two of those
 Search II is the most demanding case: it combines incremental builds, topic
 changes hidden under shared labels, *and* exact-duplicate frames. With a single
 `--auto-split`, the output matches a hand-labelled ground truth exactly — every
-one of the 36 kept pages agrees. Each deck above drove a specific fix
-documented under "Handling messy real-world files".
+one of the 36 kept pages agrees. Search III sits at the other end: a
+straightforward deck that automatic detection handles correctly with no
+corrections at all. Each deck above drove a specific fix documented under
+"Handling messy real-world files".
 
 ## All options
 
