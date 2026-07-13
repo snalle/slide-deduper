@@ -198,10 +198,11 @@ continued") are not.
 
 ## Validation
 
-Tested on ten real lecture decks, comparing the tool's output against a
-hand-verified true count. "Auto-detected" is the plain `--dry-run` result;
-"reviewed splits" is what a human keeps after reviewing the tool's suggestions
-(see the note below on why this step is human judgement, not automatic).
+Tested on thirteen real lecture decks plus the full merged corpus, comparing
+the tool's output against a hand-verified true count. "Auto-detected" is the
+plain `--dry-run` result; "reached true count by" is what a human keeps after
+reviewing the tool's suggestions (see the note below on why this step is human
+judgement, not automatic).
 
 | Lecture                    | Pages | Method | Auto-detected | True count | Reached true count by |
 |----------------------------|------:|--------|--------------:|-----------:|-----------------------|
@@ -218,14 +219,34 @@ hand-verified true count. "Auto-detected" is the plain `--dry-run` result;
 | L12 Bayesian Networks      |    26 | labels |            14 |         16 | `--auto-split`           |
 | L13 PDDL                   |    40 | labels |            22 |         27 | `--auto-split` (+ blank-page drop) |
 | Wrap-up                    |    23 | labels |            18 |         18 | nothing (clean)          |
-| Combined lectures (merged) |   670 | text   |           368 |          — | (no ground truth)        |
+| **Combined (13 lectures)** |   670 | text   |           380 |       ~374 | text fallback; see below |
 
 Across these decks the tool exercises every detection path: `labels` (most
-decks, where the PDF's page labels declare the slide structure), `text` (the
-merged 670-page file, whose bookmarks were unusable), and the no-build case
-where the correct action is to change nothing (both FoL decks passed through
-untouched). On several decks automatic detection already equals the true count;
-on others the cross-check's suggestions, reviewed and applied, close the gap.
+individual decks, where the PDF's page labels declare the slide structure),
+`text` (the merged corpus, whose per-lecture labels were lost in the merge), and
+the no-build case where the correct action is to change nothing (the FoL and
+MiniZinc decks passed through untouched). On several decks automatic detection
+already equals the true count; on others the cross-check's suggestions, reviewed
+and applied, close the gap.
+
+### The combined-corpus test
+
+Running the tool on all thirteen lectures concatenated into one 670-page file is
+the end-to-end stress test. The result — **380 slides against a hand-verified
+target of ~374, within 1.6%** — is informative in three ways:
+
+- **Graceful degradation.** Merging destroyed the per-lecture page labels, so
+  the tool fell back from `labels` to `text` detection automatically. It still
+  landed within 1.6% of the sum of the individually-verified counts.
+- **Right for the right reasons.** A 141-page stretch with *zero* removals maps
+  cleanly onto the three no-build lectures (FoL ×2 + MiniZinc = 136 pages) — the
+  tool correctly changed nothing there rather than failing to detect builds.
+- **Why not exact.** The ~6-slide gap comes from the twelve lecture *seams*
+  (where one deck's last slide meets the next deck's title) and from the
+  per-lecture human judgements (keeping CSP's substitution, collapsing PEAS's)
+  that `text` detection cannot reproduce on its own. Reaching exactly 374 would
+  require the same manual review applied per-lecture — the tool gets within 1.6%
+  automatically.
 
 ### Why the last column is sometimes "reviewed", not automatic
 
@@ -263,7 +284,7 @@ is deliberate: forcing an automatic answer would be wrong half the time.
 | `--inspect`              | print the full structural inspection and exit             |
 | `--dry-run`              | analyse only; write no PDF                                 |
 | `--split PAGES`          | start a new slide at these page numbers, e.g. `27,53`     |
-| `--auto-split`           | apply the suggested title-change splits automatically     |
+| `--auto-split`           | apply all suggested boundaries (title-change + layout cross-check) automatically |
 | `--merge SPEC`           | combine groups by report index, e.g. `3+4,7+8`            |
 | `--quiet`                | suppress the text report                                  |
 
@@ -274,20 +295,71 @@ pytest tests/                    # with pytest installed
 python3 tests/test_grouping.py   # no dependencies beyond the package
 ```
 
-The suite covers each detection method, the three real-world regressions
-above, manual `--split`, and the boundary suggester.
+The suite (15 tests) covers each detection method, the real-world regressions
+listed under "Edge cases" above, the layout method and cross-check, manual
+`--split`, blank-page and duplicate handling, and the boundary suggester.
 
-## Limitations
+## Limitations — what it still struggles with
 
-The default methods assume builds are *cumulative* — each step adds to the
-previous one, so keeping the last page keeps everything. They cannot, on their
-own, handle **parallel builds**, where one slide shows two alternative versions
-of the same base content (see "The layout method" above). `--method layout`
-addresses this case, but is itself a heuristic: it distinguishes an *extended*
-line from a *replaced* one by prefix, so a slide that genuinely replaces a line
-with one starting the same way, or that shrinks, can still be misread. No purely
-mechanical rule captures author intent perfectly, which is why `--split` and
-`--merge` remain available for the cases any detector gets wrong.
+The tool is reliable on the common case (cumulative builds with usable labels or
+comparable text), but it is a set of heuristics, not a mind-reader. Known limits:
+
+- **Substitution intent is undecidable.** The tool detects *where* a line is
+  replaced rather than added, but not whether you want both variants kept (like
+  CSP's Edges/Hyper-edges) or only the final summary (like PEAS revealed one
+  element at a time). These are structurally identical; the difference is
+  pedagogical intent. So substitutions are *surfaced as suggestions*, and
+  `--auto-split` — which applies all of them — over-splits build-then-summarise
+  slides. The intended workflow there is to review and apply `--split` manually.
+
+- **The layout method's prefix rule can misfire.** It treats an *extended* line
+  as a build and a *replaced* line as a new slide, judged by prefix. A slide
+  that genuinely replaces a line with one that happens to start the same way, or
+  that *shrinks* text between builds, can be misread. It is also stricter than
+  the defaults, so on decks with in-place counters or heavy reflow it keeps more
+  pages than wanted — which is why it is opt-in, not the default.
+
+- **Image-only slides can't be compared by text.** The `text` and `layout`
+  methods rely on extractable text. A slide that is purely a diagram or
+  screenshot (e.g. an incrementally-built graph rendered as images) has no text
+  to compare, so consecutive image-only builds may each be kept as separate
+  slides. The `visual` method exists for this but is coarser; for image-heavy
+  builds, manual `--merge` or `--split` may be needed.
+
+- **Merged decks lose structure.** Concatenating lectures destroys per-file page
+  labels (and can corrupt bookmarks to page 0), forcing the fuzzier `text`
+  fallback. On the 670-page combined corpus this still landed within 1.6% of the
+  hand-verified target, but exact recovery would need the per-lecture manual
+  review re-applied, and lecture *seams* introduce small boundary errors.
+
+- **Lecture seams in combined files.** Where one deck's final slide meets the
+  next deck's title slide, the tool may keep an extra transition page or merge
+  across the boundary. Small, but it accounts for part of the combined-corpus
+  gap.
+
+- **`--merge` uses group indices, `--split` uses page numbers.** A deliberate
+  asymmetry (page numbers are stable regardless of grouping; merge naturally
+  works on the indices shown in the report), but worth knowing when combining
+  both in one run — split is applied first, then merge on the resulting indices.
+
+When any detector gets a specific deck wrong, `--split` and `--merge` are the
+escape hatch — the tool is designed so a human always has the final say.
+
+## Edge cases the tool was hardened against
+
+Each of these was a real failure found by running actual lecture PDFs, then
+fixed and pinned with a regression test:
+
+| Edge case | What broke | Fix |
+|-----------|-----------|-----|
+| Sparse "section" bookmarks | 3 bookmarks in an 81-page deck collapsed it to 3 groups | reject implausibly sparse bookmarks; fall through to content detection |
+| Merged-file bookmarks | destinations collapsed to page 0 | detect and ignore |
+| Beamer `N / M` footers | changing page number made builds look different | strip footers before text comparison |
+| Character-level title match | "Evaluating Algorithms" vs "Uninformed Search Algorithms" scored as similar | compare titles by *word* overlap, not characters |
+| Non-Latin characters (`←`, math) | crashed on Windows cp1252 consoles | force UTF-8 output |
+| Exact-duplicate frames | exporter repeated the final frame across a label boundary | merge adjacent groups with identical boundary text |
+| Blank slides | a full-page white rectangle looked like content, confused layout detection | drop pages with no text/images/meaningful drawing, ignoring full-page background fills |
+| Parallel builds | text/visual merged substituted variants, losing content | `--method layout` + cross-check surface them for review |
 
 ## Scope
 
