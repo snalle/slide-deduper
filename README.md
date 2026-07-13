@@ -69,7 +69,7 @@ a text report plus an optional HTML visual review.
 ## Handling messy real-world files
 
 Real exported decks break naive assumptions. `slide-deduper` was hardened
-against three failure modes found on actual lecture PDFs:
+against a series of failure modes found on actual lecture PDFs:
 
 - **Sparse "section" bookmarks.** A deck may carry only a few top-level
   bookmarks (e.g. 3 chapter headings in an 81-page file). Trusting these as
@@ -122,6 +122,28 @@ on decks with in-place counters or heavy text reflow it can keep more pages
 than you want. Reach for it when a deck has parallel builds; the reliable
 label/text default is unchanged.
 
+### Automatic cross-check
+
+You don't have to know in advance that a deck contains parallel builds. Under
+`--method auto`, after the primary method groups the pages, the layout method
+is run as a second opinion and the two groupings are compared. Wherever layout
+would start a new slide *inside* one of the primary method's groups — a
+disagreement — that page is surfaced as a suggestion:
+
+```
+Possible missed slide boundaries (a page may start a new slide):
+  group 9: page 33 looks like a new slide - 'The Constraint Graph of a CSP'
+To apply all: --split 33
+```
+
+This is *ensemble disagreement as a signal*: a fast, reliable method does the
+grouping, a stricter method checks it, and only where they disagree does the
+tool ask you to look. Suggestions are printed, not applied, so a clean deck
+(where the methods agree) produces no noise, while a deck with parallel builds
+gets its boundaries flagged for review. Apply them with `--auto-split`, or copy
+the printed `--split` line. On the CSP deck below, the cross-check flagged seven
+boundaries and every one matched an independently hand-labelled slide.
+
 ## Manual correction
 
 Automatic grouping recovers the slide structure the PDF *declares*.
@@ -172,7 +194,7 @@ ground truth (the deck's own slide numbering):
 | L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
 | L4: Search II              |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
 | L5: Search III             |    49 | labels  |          17 | — (none needed)  |         17 |
-| L6: CSP                    |    68 | layout  |          35 | 35 (`--method layout`) |    35 |
+| L6: CSP                    |    68 | labels  |          28 | 35 (`--auto-split`) |    35 |
 | Combined lectures (merged) |   670 | text    |         368 |                — |          — |
 
 *(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
@@ -190,6 +212,11 @@ one of the 36 kept pages agrees. Search III sits at the other end: a
 straightforward deck that automatic detection handles correctly with no
 corrections at all. Each deck above drove a specific fix documented under
 "Handling messy real-world files".
+
+On the CSP deck, the automatic cross-check flagged seven boundaries the label
+method had merged; applying them with `--auto-split` reproduced a hand-labelled
+ground truth of 35 slides exactly, while the same cross-check stayed silent on
+the clean Search III deck.
 
 ## All options
 
