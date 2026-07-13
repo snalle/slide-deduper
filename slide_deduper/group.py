@@ -129,11 +129,23 @@ def group_by_bookmarks(info: PdfInspection) -> list[SlideGroup] | None:
     # Plausibility guard. Bookmarks are only slide boundaries if there are
     # roughly as many of them as there are slides. A handful of bookmarks in a
     # large deck almost always marks *sections*, not slides, and trusting them
-    # collapses dozens of pages into a few huge groups. Heuristic: reject when
-    # the average pages-per-group is implausibly high (i.e. each "slide" would
-    # span many pages). Real incremental builds rarely exceed ~15 pages.
+    # collapses dozens of pages into a few huge groups.
+    #
+    # Two checks:
+    # 1. If the deck also has page labels and they imply substantially more
+    #    slides than there are bookmarks, the labels are the truer signal -
+    #    defer to them (a deck with 6 bookmarks but 23 distinct labels has 23
+    #    slides grouped into 6 sections, so bookmarks would collapse ~4x too
+    #    hard). This uses a signal the deck already carries rather than a
+    #    tuned page-count threshold.
+    # 2. Otherwise fall back to a coarse density check: reject when each
+    #    "slide" would span implausibly many pages.
+    distinct_labels = len({p.label for p in info.pages if p.label})
+    if distinct_labels >= max(2 * len(starts), len(starts) + 4):
+        return None  # labels imply many more slides; let the label method run
+
     avg_pages_per_group = info.page_count / len(starts)
-    if len(starts) < 3 or avg_pages_per_group > 12:
+    if len(starts) < 3 or avg_pages_per_group > 8:
         return None
 
     groups: list[SlideGroup] = []

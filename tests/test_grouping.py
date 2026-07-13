@@ -214,6 +214,39 @@ def test_duplicate_pages_merged():
     assert 2 not in keeps  # the earlier duplicate is dropped
 
 
+def test_bookmarks_defer_to_richer_labels():
+    """Few bookmarks but many page labels -> labels win (bookmarks are sections).
+
+    A deck with 6 chapter bookmarks but 23 distinct page labels has 23 slides
+    organised into 6 sections. Grouping by the 6 bookmarks would collapse it ~4x
+    too hard. When labels imply substantially more slides than bookmarks, the
+    bookmark method must defer so grouping falls through to labels.
+    """
+    from slide_deduper.inspect import PdfInspection, PageInfo
+    from slide_deduper.group import group_by_bookmarks
+
+    # 68 pages, 23 distinct labels (~3 pages each), 6 section bookmarks.
+    labels = {}
+    lab = 0
+    for p in range(1, 69):
+        if (p - 1) % 3 == 0 and lab < 23:
+            lab += 1
+        labels[p] = str(min(lab, 23))
+    pages = [
+        PageInfo(index=p - 1, label=labels[p], xref=p, text="", title="")
+        for p in range(1, 69)
+    ]
+    bookmarks = [
+        (1, "Ch1", 1), (1, "Ch2", 9), (1, "Ch3", 19),
+        (1, "Ch4", 31), (1, "Ch5", 43), (1, "Ch6", 56),
+    ]
+    info = PdfInspection(
+        path=Path("x"), page_count=68, pdf_format="", metadata={},
+        bookmarks=bookmarks, page_label_rules=["x"] * 23, pages=pages,
+    )
+    assert group_by_bookmarks(info) is None  # defers to labels
+
+
 def test_beamer_footer_does_not_split_builds():
     """A changing 'N / M' page-number footer must not break build grouping.
 
