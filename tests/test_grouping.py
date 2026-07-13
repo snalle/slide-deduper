@@ -382,6 +382,33 @@ def test_cross_check_flags_layout_disagreement():
         assert 3 in flagged  # layout would split at page 3; text merged it
 
 
+def test_blank_pages_dropped_images_kept():
+    """Genuinely blank pages are removed; image-only pages are kept.
+
+    An accidental empty frame (no text, no images, no drawings) is never a
+    slide and also confuses content detectors, so it is dropped. A page with a
+    drawing but no text (a diagram slide) must be kept.
+    """
+    import fitz
+    from slide_deduper.inspect import inspect_pdf
+    from slide_deduper.group import group_pages
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "blanks.pdf"
+        doc = fitz.open()
+        p1 = doc.new_page(width=720, height=540)
+        p1.insert_text((60, 80), "Real slide", fontsize=20)  # text page
+        doc.new_page(width=720, height=540)                   # blank page
+        p3 = doc.new_page(width=720, height=540)
+        p3.draw_rect(fitz.Rect(100, 100, 300, 300), fill=(0, 0, 1))  # image-only
+        doc.save(path)
+        doc.close()
+
+        keeps = [g.keep for g in group_pages(inspect_pdf(path), method="labels")]
+        assert 2 not in keeps          # blank page dropped
+        assert 1 in keeps and 3 in keeps  # text page and diagram page kept
+
+
 def test_layout_line_completion_is_a_build():
     """A line completed in place ('Row:' -> 'Row: values') is a build, not a split.
 

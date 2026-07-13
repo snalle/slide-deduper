@@ -375,6 +375,68 @@ def merge_duplicate_pages(
 _METHODS = ("bookmarks", "labels", "text", "visual", "layout")
 
 
+def _has_meaningful_drawing(page) -> bool:
+    """True if the page has a drawing that is actual content, not just a
+    full-page background fill.
+
+    Some 'empty' slides carry a single page-sized white rectangle as a
+    background. That is not content, so it should not stop a page being treated
+    as blank. A drawing counts as meaningful only if it covers noticeably less
+    than the whole page (i.e. it is a real shape, not a backdrop).
+    """
+    page_area = abs(page.rect.width * page.rect.height)
+    if page_area == 0:
+        return bool(page.get_drawings())
+    for d in page.get_drawings():
+        r = d["rect"]
+        area = abs(r.width * r.height)
+        # Skip drawings that span (almost) the entire page - background fills.
+        if area >= 0.95 * page_area:
+            continue
+        return True  # a genuinely smaller shape = real content
+    return False
+
+
+def drop_blank_pages(
+    info: PdfInspection, groups: list[SlideGroup]
+) -> list[SlideGroup]:
+    """Remove genuinely blank pages (no text, no images, no drawings).
+
+    Decks sometimes contain an accidental empty frame. A blank page is never a
+    slide worth keeping, and it also confuses content detectors (the layout
+    method sees all content 'vanish' and flags a false boundary). This pass
+    reads each page and drops those with nothing on them at all - while keeping
+    image-only or diagram slides, which have images/drawings even with no text.
+    """
+    import fitz
+
+    try:
+        doc = fitz.open(info.path)
+    except Exception:
+        return groups  # can't read file (e.g. synthetic test data); skip
+    try:
+        blank: set[int] = set()
+        for i in range(doc.page_count):
+            page = doc[i]
+            has_text = bool(page.get_text("text").strip())
+            has_images = bool(page.get_images())
+            has_content_drawing = _has_meaningful_drawing(page)
+            if not (has_text or has_images or has_content_drawing):
+                blank.add(i + 1)  # 1-based page number
+    finally:
+        doc.close()
+
+    if not blank:
+        return groups
+
+    cleaned: list[SlideGroup] = []
+    for g in groups:
+        kept_pages = [p for p in g.pages if p not in blank]
+        if kept_pages:  # drop the group entirely if it was all-blank
+            cleaned.append(SlideGroup(kept_pages, g.method, g.confidence))
+    return cleaned
+
+
 def group_pages(
     info: PdfInspection,
     method: str = "auto",
@@ -382,9 +444,9 @@ def group_pages(
 ) -> list[SlideGroup]:
     """Group pages using the chosen method, or auto-select the best one.
 
-    After the chosen method runs, a duplicate-merging pass collapses adjacent
-    groups whose boundary pages are exact duplicates (see
-    ``merge_duplicate_pages``).
+    After the chosen method runs, blank pages are removed and a
+    duplicate-merging pass collapses adjacent groups whose boundary pages are
+    exact duplicates (see ``drop_blank_pages`` and ``merge_duplicate_pages``).
     """
 
     if method not in _METHODS + ("auto",):
@@ -412,6 +474,7 @@ def group_pages(
             or group_by_text(info, threshold)
         )
 
+    groups = drop_blank_pages(info, groups)
     return merge_duplicate_pages(info, groups)
 
 
