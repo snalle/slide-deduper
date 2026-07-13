@@ -56,6 +56,7 @@ method that applies, in order of reliability:
 | `labels`    | consecutive pages sharing a logical page label           |
 | `text`      | a page whose text is an *expansion* of the previous one  |
 | `visual`    | rendered page N+1 preserves N's ink while adding more     |
+| `layout`    | compares text lines to tell *adding* from *replacing* (opt-in) |
 
 Each group keeps its **last** page — the fully built-up version. `--method
 auto` (the default) prefers structural signals (bookmarks, labels) and falls
@@ -95,6 +96,31 @@ against three failure modes found on actual lecture PDFs:
   duplicates straddle a page-label boundary, the label detector would keep two
   copies. A post-grouping pass detects adjacent groups whose boundary pages
   have identical text and merges them, so only one copy survives.
+
+## The layout method: adding vs. replacing
+
+The default methods answer one question: "does the next page keep most of the
+previous one and grow?" That works for **cumulative** builds, where each step
+adds content. It fails for **parallel** builds, where a slide shows two
+alternative versions of the same base — e.g. a constraint-graph slide whose
+final line reads *"Edges/arcs show constraints"* on one page and *"Hyper-edges
+show constraints"* on the next. The two pages share almost all their text, so
+the text and visual methods merge them and the first variant is lost.
+
+`--method layout` handles this by comparing pages as ordered **text lines** and
+asking whether the next page *preserves every line* of the previous one. A
+previous line counts as preserved if it appears again exactly, or as the
+**prefix** of a longer line (builds often complete a line in place: *"Row
+constraints:"* becomes *"Row constraints: X1..X9 all different"*). If any line
+is neither kept nor extended — its text was *replaced* — that page starts a new
+slide, so both variants survive.
+
+This distinction (a line *extended* is a build; a line *replaced* is a new
+slide) is what lets the layout method keep parallel builds that the other
+methods silently drop. It is opt-in because it is stricter than the defaults:
+on decks with in-place counters or heavy text reflow it can keep more pages
+than you want. Reach for it when a deck has parallel builds; the reliable
+label/text default is unchanged.
 
 ## Manual correction
 
@@ -146,6 +172,7 @@ ground truth (the deck's own slide numbering):
 | L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
 | L4: Search II              |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
 | L5: Search III             |    49 | labels  |          17 | — (none needed)  |         17 |
+| L6: CSP                    |    68 | layout  |          35 | 35 (`--method layout`) |    35 |
 | Combined lectures (merged) |   670 | text    |         368 |                — |          — |
 
 *(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
@@ -168,7 +195,7 @@ corrections at all. Each deck above drove a specific fix documented under
 
 | Flag                     | Purpose                                                   |
 |--------------------------|-----------------------------------------------------------|
-| `--method`               | `auto` (default), `bookmarks`, `labels`, `text`, `visual` |
+| `--method`               | `auto` (default), `bookmarks`, `labels`, `text`, `visual`, `layout` |
 | `--confidence-threshold` | similarity cutoff for text/visual grouping (0–1)          |
 | `--report FILE.html`     | write a grouped thumbnail review, kept vs dropped         |
 | `--inspect`              | print the full structural inspection and exit             |
@@ -187,6 +214,18 @@ python3 tests/test_grouping.py   # no dependencies beyond the package
 
 The suite covers each detection method, the three real-world regressions
 above, manual `--split`, and the boundary suggester.
+
+## Limitations
+
+The default methods assume builds are *cumulative* — each step adds to the
+previous one, so keeping the last page keeps everything. They cannot, on their
+own, handle **parallel builds**, where one slide shows two alternative versions
+of the same base content (see "The layout method" above). `--method layout`
+addresses this case, but is itself a heuristic: it distinguishes an *extended*
+line from a *replaced* one by prefix, so a slide that genuinely replaces a line
+with one starting the same way, or that shrinks, can still be misread. No purely
+mechanical rule captures author intent perfectly, which is why `--split` and
+`--merge` remain available for the cases any detector gets wrong.
 
 ## Scope
 
