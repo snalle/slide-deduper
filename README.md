@@ -97,6 +97,14 @@ against a series of failure modes found on actual lecture PDFs:
   copies. A post-grouping pass detects adjacent groups whose boundary pages
   have identical text and merges them, so only one copy survives.
 
+- **Blank slides.** An accidental empty frame is dropped rather than kept — it
+  is never a real slide, and it otherwise confuses content detection by looking
+  like all content was suddenly removed (the layout method reads that as a new
+  slide). "Blank" is judged carefully: a page counts as empty only if it has no
+  text, no images, and no meaningful drawing — a full-page white background
+  rectangle (how some tools encode an empty slide) is ignored, while a genuine
+  image-only diagram slide is kept.
+
 ## The layout method: adding vs. replacing
 
 The default methods answer one question: "does the next page keep most of the
@@ -173,9 +181,14 @@ Possible missed slide boundaries (title changes inside a group):
 To apply all: --split 27,53
 ```
 
-Suggestions are printed but **not** applied automatically, so the reliable
-label-based default is never silently overridden. Copy the suggested `--split`,
-or let the tool apply its own suggestions with `--auto-split`.
+Suggestions come from two sources: a sharp **title change** inside a group, and
+the **layout cross-check** (a substitution the primary method merged away). They
+are printed but **not** applied automatically. `--auto-split` applies all of
+them; this is correct when every suggestion is a real boundary (as on CSP), but
+some decks reveal elements one at a time before summarising them, and there
+`--auto-split` over-splits. The robust workflow is therefore to read the
+suggestions and apply `--split` with the boundaries you actually want — see
+"Why the last column is sometimes reviewed" under Validation.
 
 Titles are compared by *word overlap* rather than character similarity, so two
 headings that share a common word but cover different topics — e.g.
@@ -185,38 +198,60 @@ continued") are not.
 
 ## Validation
 
-Tested on real lecture decks, comparing the recovered slide count against
-ground truth (the deck's own slide numbering):
+Tested on ten real lecture decks, comparing the tool's output against a
+hand-verified true count. "Auto-detected" is the plain `--dry-run` result;
+"reviewed splits" is what a human keeps after reviewing the tool's suggestions
+(see the note below on why this step is human judgement, not automatic).
 
-| Deck                       | Pages | Method  | Auto slides | With corrections | True count |
-|----------------------------|------:|---------|------------:|-----------------:|-----------:|
-| L2: Intelligent Agents     |    81 | labels  |          21 |   23 (`--split`) |         23 |
-| L3: Search                 |    41 | labels  |          20 |   22 (`--split`) |         22 |
-| L4: Search II              |    81 | labels  |          30 | 36 (`--auto-split`) |      36 |
-| L5: Search III             |    49 | labels  |          17 | — (none needed)  |         17 |
-| L6: CSP                    |    68 | labels  |          28 | 35 (`--auto-split`) |    35 |
-| Combined lectures (merged) |   670 | text    |         368 |                — |          — |
+| Lecture                    | Pages | Method | Auto-detected | True count | Reached true count by |
+|----------------------------|------:|--------|--------------:|-----------:|-----------------------|
+| L2 Intelligent Agents      |    81 | labels |            21 |         23 | reviewed `--split 27,53` |
+| L3 Search                  |    41 | labels |            20 |         22 | `--auto-split`           |
+| L4 Search II               |    81 | labels |            29 |         36 | `--auto-split`           |
+| L5 Search III              |    49 | labels |            17 |         17 | nothing (clean)          |
+| L6 CSP                     |    68 | labels |            28 |         35 | `--auto-split`           |
+| L7 Logical Agents          |    57 | labels |            18 |         21 | `--auto-split`           |
+| L8 Inference & FoL         |    43 | labels |            43 |         43 | nothing (no builds)      |
+| L9 Unification & FoL       |    73 | labels |            73 |         73 | nothing (no builds)      |
+| L10 MiniZinc Tutorial      |    20 | labels |            20 |         20 | nothing (no builds)      |
+| L11 Uncertainty            |    68 | labels |            23 |         23 | nothing (clean)          |
+| L12 Bayesian Networks      |    26 | labels |            14 |         16 | `--auto-split`           |
+| L13 PDDL                   |    40 | labels |            22 |         27 | `--auto-split` (+ blank-page drop) |
+| Wrap-up                    |    23 | labels |            18 |         18 | nothing (clean)          |
+| Combined lectures (merged) |   670 | text   |           368 |          — | (no ground truth)        |
 
-*(Add your own rows: run `--dry-run` on a deck whose slide numbering gives a
-known count, and compare.)*
+Across these decks the tool exercises every detection path: `labels` (most
+decks, where the PDF's page labels declare the slide structure), `text` (the
+merged 670-page file, whose bookmarks were unusable), and the no-build case
+where the correct action is to change nothing (both FoL decks passed through
+untouched). On several decks automatic detection already equals the true count;
+on others the cross-check's suggestions, reviewed and applied, close the gap.
 
-The Intelligent Agents deck is the illustrative case: the PDF's page labels
-declare 21 slides, and automatic detection recovers exactly that. Two of those
-"slides" actually contain a topic change the author placed under one label;
-`--split` (suggested automatically) separates them for the reader's 23.
+### Why the last column is sometimes "reviewed", not automatic
 
-Search II is the most demanding case: it combines incremental builds, topic
-changes hidden under shared labels, *and* exact-duplicate frames. With a single
-`--auto-split`, the output matches a hand-labelled ground truth exactly — every
-one of the 36 kept pages agrees. Search III sits at the other end: a
-straightforward deck that automatic detection handles correctly with no
-corrections at all. Each deck above drove a specific fix documented under
-"Handling messy real-world files".
+The tool reliably detects *where* content is substituted between pages — a line
+replaced rather than added. What it cannot decide is whether a given
+substitution should be **kept as two slides** or **collapsed to its final
+form**, because that is a matter of what the reader finds useful, not anything
+in the document.
 
-On the CSP deck, the automatic cross-check flagged seven boundaries the label
-method had merged; applying them with `--auto-split` reproduced a hand-labelled
-ground truth of 35 slides exactly, while the same cross-check stayed silent on
-the clean Search III deck.
+Two real examples, structurally identical but wanting opposite outcomes:
+
+- **CSP (keep both).** A slide's final line reads *"Edges/arcs show
+  constraints"* on one page and *"Hyper-edges show constraints"* on the next.
+  Each variant carries unique content, so both are worth keeping.
+- **Intelligent Agents / PEAS (keep only the last).** A slide reveals the four
+  PEAS elements one at a time — *Environment*, then *Sensors*, then *Actuators*,
+  then *Performance* — each replacing the previous, before a final page shows
+  all four together. Here only the final combined page is worth keeping.
+
+Both are in-place substitutions; no structural rule can tell them apart, because
+the difference is pedagogical intent. So the tool **surfaces every substitution
+as a suggestion** and lets the reader decide. `--auto-split` applies all of
+them (correct for CSP; over-splits PEAS), so for decks with build-then-summarise
+slides the intended workflow is to read the suggestions and apply `--split` with
+just the boundaries you want. This "detect automatically, decide manually" split
+is deliberate: forcing an automatic answer would be wrong half the time.
 
 ## All options
 
