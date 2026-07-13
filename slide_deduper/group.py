@@ -467,14 +467,60 @@ def suggest_splits(
     return suggestions
 
 
+def cross_check_layout(
+    info: PdfInspection,
+    groups: list[SlideGroup],
+) -> list[tuple[int, int, str]]:
+    """Flag boundaries the layout method would add but the chosen method missed.
+
+    Runs the layout method and compares its group boundaries with the given
+    grouping. Where layout starts a new slide *inside* one of the chosen
+    method's groups, that page is a candidate parallel-build (a line was
+    replaced, not added) that the chosen method merged away. These are returned
+    as suggestions in the same shape as ``suggest_splits`` so the two can be
+    combined and surfaced together.
+
+    Returns (group_index, page_number, note) tuples, 1-based, where page_number
+    is where layout would begin a new slide.
+    """
+    try:
+        layout_groups = group_by_layout(info)
+    except Exception:
+        return []  # layout unavailable (e.g. no extractable text); skip quietly
+
+    # Pages where the layout method starts a new group (its boundaries).
+    layout_starts = {g.start for g in layout_groups}
+
+    by_page = {p.number: p for p in info.pages}
+    suggestions: list[tuple[int, int, str]] = []
+    for gi, g in enumerate(groups, 1):
+        # A disagreement is a layout boundary strictly inside this group.
+        for page in g.pages[1:]:
+            if page in layout_starts:
+                page_obj = by_page.get(page)
+                title = (page_obj.title.strip() if page_obj else "") or "(new variant)"
+                suggestions.append((gi, page, title))
+    return suggestions
+
+
 def format_split_suggestions(suggestions: list[tuple[int, int, str]]) -> str:
     """Render split suggestions as a short, copy-pasteable hint block."""
     if not suggestions:
         return ""
-    lines = ["", "Possible missed slide boundaries (title changes inside a group):"]
-    for gi, page, title in suggestions:
-        preview = title if len(title) <= 50 else title[:50] + "..."
+    # De-duplicate by page (title-change and layout cross-check can overlap),
+    # keeping the first note seen and preserving order.
+    seen: set[int] = set()
+    unique: list[tuple[int, int, str]] = []
+    for gi, page, note in suggestions:
+        if page not in seen:
+            seen.add(page)
+            unique.append((gi, page, note))
+    unique.sort(key=lambda t: t[1])
+
+    lines = ["", "Possible missed slide boundaries (a page may start a new slide):"]
+    for gi, page, note in unique:
+        preview = note if len(note) <= 50 else note[:50] + "..."
         lines.append(f"  group {gi}: page {page} looks like a new slide - {preview!r}")
-    pages = ",".join(str(p) for _, p, _ in suggestions)
+    pages = ",".join(str(p) for _, p, _ in unique)
     lines.append(f"To apply all: --split {pages}")
     return "\n".join(lines)

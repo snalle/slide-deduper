@@ -314,6 +314,41 @@ def test_manual_split_starts_new_group():
 # End-to-end: the produced PDF actually contains the kept pages
 # ---------------------------------------------------------------------------
 
+def test_cross_check_flags_layout_disagreement():
+    """cross_check_layout surfaces a substitution the text method merged away.
+
+    The text method groups a base page and its two parallel variants (Edges vs
+    Hyper-edges) into one slide, losing the first variant. Cross-checking
+    against the layout method — which splits at the substitution — flags that
+    page so the user can review it, without changing the grouping automatically.
+    """
+    import fitz
+    from slide_deduper.inspect import inspect_pdf
+    from slide_deduper.group import group_by_text, cross_check_layout
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "sub.pdf"
+        doc = fitz.open()
+
+        def page(last):
+            p = doc.new_page(width=720, height=540)
+            p.insert_text((60, 80), "Constraint Graph", fontsize=22)
+            p.insert_text((80, 160), "Nodes are variables", fontsize=18)
+            if last:
+                p.insert_text((80, 220), last, fontsize=18)
+
+        page(None)
+        page("Edges show constraints")
+        page("Hyper-edges show constraints")  # substitution vs page 2
+        doc.save(path)
+        doc.close()
+
+        info = inspect_pdf(path)
+        text_groups = group_by_text(info)
+        flagged = [page for _, page, _ in cross_check_layout(info, text_groups)]
+        assert 3 in flagged  # layout would split at page 3; text merged it
+
+
 def test_layout_line_completion_is_a_build():
     """A line completed in place ('Row:' -> 'Row: values') is a build, not a split.
 

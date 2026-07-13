@@ -18,7 +18,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 from . import __version__
 from .inspect import inspect_pdf, print_report
-from .group import group_pages, format_groups, SlideGroup, suggest_splits, format_split_suggestions
+from .group import group_pages, format_groups, SlideGroup, suggest_splits, format_split_suggestions, cross_check_layout
 from .dedupe import dedupe_pdf, format_text_report, write_html_report
 
 
@@ -158,6 +158,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Detect candidate missed boundaries (new subject inside a grouped run).
     suggestions = suggest_splits(info, groups)
+
+    # Cross-check against the layout method: it can spot parallel-builds (a line
+    # replaced in place) that structural/text methods merge away. Skip when the
+    # chosen method already IS layout (no point comparing against itself).
+    if chosen_method != "layout":
+        suggestions = suggestions + cross_check_layout(info, groups)
 
     # Manual corrections. Split first (operates on page numbers, unaffected by
     # indexing), then merge (operates on the resulting group indices).
