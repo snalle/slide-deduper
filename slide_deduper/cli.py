@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("output", type=Path, nargs="?", help="output PDF (omit for dry-run)")
     p.add_argument(
         "--method",
-        choices=["auto", "bookmarks", "labels", "text", "visual"],
+        choices=["auto", "bookmarks", "labels", "text", "visual", "layout"],
         default="auto",
         help="detection method (default: auto)",
     )

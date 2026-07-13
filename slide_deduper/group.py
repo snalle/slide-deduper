@@ -239,6 +239,85 @@ def group_by_visual(
     return groups
 
 
+def group_by_layout(
+    info: PdfInspection,
+) -> list[SlideGroup]:
+    """Group by text lines, distinguishing *adding* from *replacing*.
+
+    The other content methods (text, visual) only ask "does the next page keep
+    most of the previous one and grow?". They cannot tell a cumulative build
+    (new bullet added below) from a parallel build / substitution (a line
+    changed in place) - e.g. a slide whose final line reads "Edges show
+    constraints" on one page and "Hyper-edges show constraints" on the next.
+    Both share almost all their text, so text/visual merge them and the first
+    variant is lost.
+
+    This method extracts each page's text as ordered lines and asks whether the
+    next page *preserves every line* of the previous one:
+
+    - if every line of page A still appears on page B, B only added content ->
+      cumulative build, same slide;
+    - if any line of A is missing from B, a line was removed or its text was
+      replaced -> substitution, so B starts a new slide and both variants are
+      kept.
+
+    Comparing line *text* (rather than exact coordinates) keeps it robust to
+    the small vertical shifts that happen when earlier lines reflow between
+    builds.
+    """
+    import fitz
+
+    doc = fitz.open(info.path)
+    try:
+        # For each page: the ordered list of text lines (top to bottom).
+        page_lines: list[list[str]] = []
+        for i in range(doc.page_count):
+            rows: list[tuple[float, str]] = []
+            for block in doc[i].get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    text = " ".join(
+                        span["text"] for span in line["spans"]
+                    )
+                    text = " ".join(text.split())
+                    if text:
+                        rows.append((line["bbox"][1], text))
+            rows.sort(key=lambda r: r[0])  # top-to-bottom
+            page_lines.append([t for _, t in rows])
+    finally:
+        doc.close()
+
+    def relation(prev: list[str], curr: list[str]) -> str:
+        """Return 'build' if curr preserves all of prev's lines and only adds.
+
+        A previous line counts as preserved if it appears on the next page
+        either exactly OR as the *prefix* of a longer line. The prefix case
+        matters because builds often reveal the rest of a line in place:
+        "Row constraints:" on one page becomes "Row constraints: Xi1, ..." on
+        the next - the same line completed, not replaced. A true substitution
+        ("Edges/arcs show constraints" -> "Hyper-edges show constraints") is
+        *not* a prefix of anything on the next page, so it still splits.
+        """
+        for line in prev:
+            preserved = any(
+                cand == line or cand.startswith(line) for cand in curr
+            )
+            if not preserved:
+                return "new"  # a line vanished or was replaced (not extended)
+        return "build" if len(curr) >= len(prev) else "new"
+
+    groups: list[SlideGroup] = []
+    run = [info.pages[0]]
+    for idx in range(1, len(info.pages)):
+        rel = relation(page_lines[idx - 1], page_lines[idx])
+        if rel == "build":
+            run.append(info.pages[idx])
+        else:
+            groups.append(SlideGroup([p.number for p in run], "layout"))
+            run = [info.pages[idx]]
+    groups.append(SlideGroup([p.number for p in run], "layout"))
+    return groups
+
+
 def merge_duplicate_pages(
     info: PdfInspection, groups: list[SlideGroup]
 ) -> list[SlideGroup]:
@@ -281,7 +360,7 @@ def merge_duplicate_pages(
 # Dispatcher
 # ---------------------------------------------------------------------------
 
-_METHODS = ("bookmarks", "labels", "text", "visual")
+_METHODS = ("bookmarks", "labels", "text", "visual", "layout")
 
 
 def group_pages(
@@ -311,6 +390,8 @@ def group_pages(
         groups = group_by_text(info, threshold)
     elif method == "visual":
         groups = group_by_visual(info, threshold)
+    elif method == "layout":
+        groups = group_by_layout(info)
     else:
         # auto: prefer structural signals, fall back to content signals.
         groups = (

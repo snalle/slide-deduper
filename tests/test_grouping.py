@@ -314,6 +314,72 @@ def test_manual_split_starts_new_group():
 # End-to-end: the produced PDF actually contains the kept pages
 # ---------------------------------------------------------------------------
 
+def test_layout_line_completion_is_a_build():
+    """A line completed in place ('Row:' -> 'Row: values') is a build, not a split.
+
+    Builds often reveal the rest of a line on the next page rather than adding a
+    whole new line below. The layout method must treat the earlier partial line
+    as preserved (it is a prefix of the completed line) and keep such pages in
+    one group - otherwise it over-splits ordinary builds.
+    """
+    import fitz
+    from slide_deduper.inspect import inspect_pdf
+    from slide_deduper.group import group_by_layout
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "complete.pdf"
+        doc = fitz.open()
+
+        def page(last):
+            p = doc.new_page(width=720, height=540)
+            p.insert_text((60, 100), "Constraints", fontsize=18)
+            p.insert_text((60, 140), last, fontsize=18)
+
+        page("Row constraints:")                       # bare
+        page("Row constraints: all different in a row")  # same line, completed
+        doc.save(path)
+        doc.close()
+
+        keeps = [g.keep for g in group_by_layout(inspect_pdf(path))]
+        assert keeps == [2], keeps  # one slide, not two
+
+
+def test_layout_splits_substitution_keeps_addition():
+    """The layout method keeps cumulative builds together but splits substitutions.
+
+    Three pages share a title and a base line. Page 2 ADDS a line below (a
+    cumulative build). Page 3 keeps the base but REPLACES page 2's added line
+    with different text at the same position (a parallel build / substitution).
+
+    Cumulative build -> pages 1-2 stay one slide (keep 2). Substitution ->
+    page 3 starts a new slide, so both variants survive: keeps == [2, 3].
+    The text method, by contrast, would merge all three and lose page 2's line.
+    """
+    import fitz
+    from slide_deduper.inspect import inspect_pdf
+    from slide_deduper.group import group_by_layout
+
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "sub.pdf"
+        doc = fitz.open()
+
+        def page(last_line=None):
+            p = doc.new_page(width=720, height=540)
+            p.insert_text((60, 80), "Constraint Graph", fontsize=24)
+            p.insert_text((80, 160), "Nodes are variables", fontsize=18)
+            if last_line:
+                p.insert_text((80, 220), last_line, fontsize=18)  # same y each time
+
+        page()                              # base
+        page("Edges show constraints")      # cumulative: adds a line below
+        page("Hyper-edges show constraints")  # substitution: replaces that line
+        doc.save(path)
+        doc.close()
+
+        keeps = [g.keep for g in group_by_layout(inspect_pdf(path))]
+        assert keeps == [2, 3], keeps
+
+
 def test_output_pdf_has_one_page_per_slide():
     """Full pipeline: grouping -> written PDF has exactly one page per slide.
 
